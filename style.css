@@ -2249,6 +2249,8 @@ th:hover .col-resizer::before {
 .info-card-row { display: flex; gap: 12px; font-size: 13px; margin-bottom: 8px; }
 .info-label { color: #888; min-width: 70px; }
 .info-card-footer { font-size: 12px; color: #666; margin-top: 4px; }
+.info-card-link { color: #00bcd4; text-decoration: none; font-size: 13px; }
+.info-card-link:hover { text-decoration: underline; }
 .info-card-section-title { font-size: 12px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
 .info-card-whats-new { font-size: 13px; color: #aaa; margin-bottom: 0; }
 .info-card-privacy { font-size: 12px; color: #666; line-height: 1.5; margin-top: 4px; }

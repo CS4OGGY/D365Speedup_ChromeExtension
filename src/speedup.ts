@@ -1533,8 +1533,8 @@ D365Speedup.Handlers = {
               </div>
               <p class="info-card-tagline">Accelerate Dynamics 365 customization and development with smart tools and generators.</p>
               <div class="info-card-divider"></div>
-              <div class="info-card-row"><span class="info-label">GitHub</span><span>Source code coming soon on GitHub</span></div>
-              <div class="info-card-row"><span class="info-label">Feedback</span><span>Report an issue - coming soon</span></div>
+              <div class="info-card-row"><span class="info-label">GitHub</span><a href="https://github.com/CS4OGGY/D365Speedup_ChromeExtension" target="_blank" class="info-card-link">github.com/CS4OGGY/D365Speedup_ChromeExtension</a></div>
+              <div class="info-card-row"><span class="info-label">Feedback</span><a href="https://github.com/CS4OGGY/D365Speedup_ChromeExtension/issues" target="_blank" class="info-card-link">Report an issue on GitHub</a></div>
               <div class="info-card-divider"></div>
               <div class="info-card-section-title">What's New</div>
               <p class="info-card-whats-new">v1.0 - Initial release</p>
