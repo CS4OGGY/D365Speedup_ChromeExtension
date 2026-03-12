@@ -1,0 +1,16 @@
+{
+  "name": "d365-speedup",
+  "version": "1.0.0",
+  "description": "D365 SpeedUp - Chrome Extension for Dynamics 365 productivity",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "build:min": "tsc && node --max-old-space-size=512 minify.js",
+    "watch": "tsc --watch"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.1.37",
+    "terser": "^5.46.0",
+    "typescript": "^5.4.5"
+  }
+}
