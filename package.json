@@ -6,7 +6,8 @@
   "scripts": {
     "build": "tsc",
     "build:min": "tsc && node --max-old-space-size=512 minify.js",
-    "watch": "tsc --watch"
+    "watch": "tsc --watch",
+    "package": "node package-extension.js"
   },
   "devDependencies": {
     "@types/chrome": "^0.1.37",

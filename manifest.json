@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "D365 SpeedUp",
   "version": "1.0",
-  "description": "Accelerate Dynamics 365 customization and development with smart snippets, generators, and tools.",
+  "description": "Accelerate Dynamics 365 customization and development with smart tools and generators.",
   "permissions": ["activeTab", "scripting", "clipboardWrite", "storage", "sidePanel"],
 
   "background": {
