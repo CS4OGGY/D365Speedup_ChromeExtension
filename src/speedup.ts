@@ -4,10 +4,11 @@ interface SnippetDataSource {
   entity: string; select: string[]; orderby?: string; top?: number;
   filterTemplate?: string; minChars?: number; displayFormat?: string;
   valueField?: string; popupateAdditionalFields?: { schemaName: string; fieldName: string }[];
+  entityTemplate?: string;
 }
 interface SnippetInput {
   id: string; label: string; type?: string; placeholder?: string;
-  required?: boolean; areaRows?: number; autopopulate?: boolean;
+  required?: boolean; areaRows?: number; autopopulate?: boolean; readonly?: boolean;
   populateFrom?: string; options?: SnippetInputOption[]; dataSource?: SnippetDataSource;
   defaultValue?: string; showWhen?: { inputId: string; value: string }; appendSuffix?: string; stripSpaces?: boolean;
 }
@@ -22,7 +23,7 @@ interface PageContext {
   recordId: string; appId: string; pageType: string; userId: string; userName: string;
   userEmail: string; userRoles: string[]; businessUnitId: string; userLanguage: string;
   orgId: string; orgName: string; orgBaseCurrencyId: string; clientType: string;
-  formType: number; formTypeName: string;
+  formType: number; formTypeName: string; formName: string;
 }
 interface GridOptions {
   enableSearch?: boolean; enableFilters?: boolean; enableSorting?: boolean;
@@ -254,6 +255,7 @@ D365Speedup.Helpers = {
 
             const clientType = globalCtx.client?.getClient?.() || "";
             const formType = page?.ui?.getFormType?.() || 0;
+            const formName = page?.ui?.formSelector?.getCurrentItem?.()?.getLabel?.() || "";
             const formTypeName =
               ({
                 0: "Undefined",
@@ -283,6 +285,7 @@ D365Speedup.Helpers = {
               clientType,
               formType,
               formTypeName,
+              formName,
             };
           } catch (innerErr) {
             console.warn("Error inside Xrm context:", innerErr);
@@ -386,7 +389,7 @@ D365Speedup.Helpers = {
               const url =
                 `${baseUrl}/${entity}` +
                 `?$select=${select.join(",")}` +
-                `&$filter=${filterTemplate}`;
+                (filterTemplate ? `&$filter=${filterTemplate}` : "");
 
               const response = await fetch(url, { headers: { Accept: "application/json" } });
               const json = await response.json();
@@ -499,7 +502,17 @@ D365Speedup.Helpers = {
       debounceTimer = setTimeout(async () => {
         try {
           wrapper.classList.add("loading");
-          const results = await D365Speedup.Helpers.fetchODataAutoComplete(dataSource, query);
+          const resolvedDataSource = { ...dataSource };
+          if (dataSource.entityTemplate) {
+            resolvedDataSource.entity = dataSource.entityTemplate.replace(
+              /\{([^}]+)\}/g,
+              (_: string, inputId: string) => {
+                const refEl = document.getElementById(inputId) as HTMLInputElement | null;
+                return refEl?.value?.trim() || "";
+              }
+            );
+          }
+          const results = await D365Speedup.Helpers.fetchODataAutoComplete(resolvedDataSource, query);
           wrapper.classList.remove("loading");
           toggleClearBtn();
 
@@ -1612,7 +1625,7 @@ D365Speedup.Handlers = {
       contentArea.innerHTML = `
         <div class="empty-state">
           <div class="empty-state-icon">⚡</div>
-          <p>No favorite snippets yet.<br/>Use ★ to pin your most used tools!</p>
+          <p>No favorite tools yet.<br/>Use ★ to pin your most used tools!</p>
         </div>`;
       return;
     }
@@ -1682,7 +1695,7 @@ D365Speedup.Handlers = {
 
     const searchContainer = document.createElement("div");
     searchContainer.className = "search-container";
-    searchContainer.innerHTML = `<input id="snippetSearch" type="text" class="search-box" placeholder="Search snippets..." />`;
+    searchContainer.innerHTML = `<input id="snippetSearch" type="text" class="search-box" placeholder="Search tools..." />`;
     navContainer.appendChild(searchContainer);
 
     const allSnippets = configData.flatMap((cat: Category) =>
@@ -1797,7 +1810,7 @@ D365Speedup.Handlers = {
 
     const isFav: boolean = await D365Speedup.Storage.isFavorite(snippet.id);
     contentTitle.innerHTML = `
-      <span class="back-btn" id="backBtn"><svg viewBox="0 0 13 13" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <span class="back-btn" id="backBtn" title="Back to main menu"><svg viewBox="0 0 13 13" fill="none" xmlns="http://www.w3.org/2000/svg">
         <path d="M8.5 2L4 6.5L8.5 11" stroke="#00b4d8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
       </svg></span>
       <span style="vertical-align: top; padding-left: 8px;vertical-align: baseline;padding-right: 8px;">${snippet.title}</span>
@@ -1911,7 +1924,7 @@ D365Speedup.Handlers = {
                     return `<label class="radio-label"><input type="radio" name="${input.id}" value="${D365Speedup.Helpers.escapeHTML(val)}" ${checked}> ${D365Speedup.Helpers.escapeHTML(lbl)}</label>`;
                   }).join("")}
                 </div>`
-              : `<input type="text" id="${input.id}" placeholder="${input.placeholder || ""}" class="input-text" data-type="${input.type}"${input.stripSpaces ? ` data-strip-spaces="true"` : ""}${input.appendSuffix ? ` data-append-suffix="${input.appendSuffix}"` : ""} />`;
+              : `<input type="text" id="${input.id}" placeholder="${input.placeholder || ""}" class="input-text" data-type="${input.type}"${input.stripSpaces ? ` data-strip-spaces="true"` : ""}${input.appendSuffix ? ` data-append-suffix="${input.appendSuffix}"` : ""}${input.readonly ? ` readonly` : ""} />`;
 
       const showWhenAttr = input.showWhen
         ? ` data-show-when-input="${input.showWhen.inputId}" data-show-when-value="${input.showWhen.value}"`
@@ -1949,8 +1962,8 @@ D365Speedup.Handlers = {
         <div class="tab-content" id="tab-output">
           <div class="output-wrapper">
             ${snippet.outputType === "code"
-              ? `<pre id="outputText" class="output-code"></pre>`
-              : `<div id="outputText" class="output-text"></div>`
+              ? `<pre id="outputText" class="output-code"><span class="output-hint">Fill in the inputs and press <strong class="output-hint-run">Run</strong> (bottom) to see results here.</span></pre>`
+              : `<div id="outputText" class="output-text"><span class="output-hint">Fill in the inputs and press <strong class="output-hint-run">Run</strong> (bottom) to see results here.</span></div>`
             }
             ${snippet.copyButtonRequired
               ? `<button id="hoverCopyBtn" class="hover-copy-btn" title="Copy" style="display:none;">📑Copy</button>`
@@ -2364,6 +2377,13 @@ D365Speedup.Core = {
               t.datasetName || "Result",
               t.gridOptions || {}
             );
+
+            if (t.note) {
+              const noteEl = document.createElement("div");
+              noteEl.className = "grid-note";
+              noteEl.innerHTML = t.note;
+              holder.appendChild(noteEl);
+            }
           });
         });
 
@@ -2491,6 +2511,13 @@ D365Speedup.Handlers.Onload = async function (): Promise<void> {
   D365Speedup.Handlers.setupMainTabs();
   await D365Speedup.Handlers.setupPanelToggle();
 
+  if (!inSidebar) {
+    const btn = D365Speedup.DOM.panelToggleBtn;
+    if (btn) {
+      btn.classList.add("flash");
+      btn.addEventListener("animationend", () => btn.classList.remove("flash"), { once: true });
+    }
+  }
 
   // Show burger hint briefly if no favorites
   const favorites: string[] = await D365Speedup.Storage.getFavorites();

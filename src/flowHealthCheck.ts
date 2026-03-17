@@ -51,6 +51,7 @@ interface TableResult {
     datasetName: string;
     gridOptions: GridOptions;
     rows: Omit<FlowRow, "__lastFailedIso">[];
+    note?: string;
 }
 
 interface InteractiveTables {
@@ -136,7 +137,12 @@ export async function run(): Promise<InteractiveTables | string> {
             return {
                 __type: "interactiveTables",
                 meta: { retrievedMs: Math.round(fetchMs) },
-                tables: [{ datasetName: "⚡ Flow Health Check (0)", gridOptions: GRID_OPTIONS, rows: [] }],
+                tables: [{
+                    datasetName: "⚡ Flow Health Check (0)",
+                    gridOptions: GRID_OPTIONS,
+                    rows: [],
+                    note: "No flow run history found. To enable it, go to <strong>Settings &gt; Features</strong> and turn on <strong>Cloud flow run history in Dataverse</strong>.",
+                }],
             };
         }
 
