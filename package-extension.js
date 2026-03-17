@@ -2,7 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const { execSync } = require("child_process");
 
-const OUT = "D365SpeedUp-v1.0.zip";
+const OUT = "D365SpeedUp-v1.1.zip";
 
 // Files and folders to include in the store zip
 const include = [
