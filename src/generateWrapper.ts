@@ -241,6 +241,18 @@ export async function run(values: RunValues): Promise<string> {
         }
     }
 
+    // Sort each group alphabetically by display label
+    const byLabel = (a: GroupedAttribute, b: GroupedAttribute) => a.displayLabel.localeCompare(b.displayLabel);
+    grouped.strings.sort(byLabel);
+    grouped.lookups.sort(byLabel);
+    grouped.dates.sort(byLabel);
+    grouped.numbers.sort(byLabel);
+    grouped.bools.sort(byLabel);
+    grouped.options.sort(byLabel);
+    grouped.multiOptions.sort(byLabel);
+    grouped.others.sort(byLabel);
+    // primary and primaryName are singular — no need to sort
+
     // =========================
     // 6) FIELDS SECTION BUILDER
     // =========================
@@ -285,6 +297,9 @@ ${lines.join("\n")}
         const enumName = `${a.displayLabel}Enum`;
 
         const lines = opts
+            .slice()
+            .sort((a: OptionSetOption, b: OptionSetOption) =>
+                (a.Label?.UserLocalizedLabel?.Label || "").localeCompare(b.Label?.UserLocalizedLabel?.Label || ""))
             .map((o: OptionSetOption) => {
                 const raw = o.Label?.UserLocalizedLabel?.Label || "Unknown";
                 const safe = cleanName(raw) || "Unknown";
@@ -338,7 +353,7 @@ ${lines.join("\n")}
                 break;
         }
 
-        return `      public ${cType} ${label}\n      {\n          get => GetValue<${cType}>(Fields.${label});\n          set => SetValue(Fields.${label}, value);\n      }`;
+        return `      public ${cType} ${label}\n      {\n          get { return (${cType})this[Fields.${label}]; }\n          set { this[Fields.${label}] = value; }\n      }`;
     }
 
     function propSection(title: string, arr: GroupedAttribute[]): string {

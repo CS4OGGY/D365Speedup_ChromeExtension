@@ -24,8 +24,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["libs/prism/*",
-      "dist/*"],
+      "resources": ["libs/prism/*", "dist/*"],
       "matches": ["<all_urls>"]
     }
   ]

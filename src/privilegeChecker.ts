@@ -216,6 +216,7 @@ export async function run({ email, logicalName }: RunValues = {}): Promise<any> 
           datasetName: "ℹ️ Context",
           gridOptions: {
             allowHtml: true,
+            showFooter: false,
             enableSearch: false,
             enableFilters: false,
             enableSorting: false,
@@ -229,7 +230,8 @@ export async function run({ email, logicalName }: RunValues = {}): Promise<any> 
           datasetName: `🔐 Privileges for ${table}`,
           gridOptions: {
             allowHtml: true,
-            showRenderTime: true,
+            showFooter: false,
+            showRenderTime: false,
             enableSearch: true,
             enableFilters: true,
             enableSorting: true,

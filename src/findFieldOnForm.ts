@@ -6,12 +6,13 @@ interface RunValues {
 
 interface GridOptions {
     enableSearch?: boolean; enableFilters?: boolean; enableSorting?: boolean;
-    enableResizing?: boolean; showRenderTime?: boolean; allowHtml?: boolean;
+    enableResizing?: boolean; showRenderTime?: boolean; showFooter?: boolean; allowHtml?: boolean;
     minSearchChars?: number; collapsed?: boolean; columnOrder?: string[] | null;
 }
 
 const KV_GRID: GridOptions = {
     allowHtml: false,
+    showFooter: false,
     showRenderTime: false,
     enableSearch: false,
     enableFilters: false,
@@ -73,9 +74,9 @@ export async function run({ logicalName, fieldLogicalName }: RunValues = {}): Pr
                     { Key: "Control Name",    Value: control.getName?.() ?? "" },
                     { Key: "Control Label",   Value: control.getLabel?.() ?? "" },
                     { Key: "Field Visible",   Value: control.getVisible?.() === true ? "Yes" : "No" },
-                    { Key: "Tab #",           Value: String(tabIndex + 1) },
-                    { Key: "Section #",       Value: String(sectionIndex + 1) },
-                    { Key: "Control #",       Value: String(controlIndex + 1) },
+                    { Key: "Tab Position",     Value: String(tabIndex + 1) },
+                    { Key: "Section Position", Value: String(sectionIndex + 1) },
+                    { Key: "Control Position", Value: String(controlIndex + 1) },
                 ]);
             });
         });

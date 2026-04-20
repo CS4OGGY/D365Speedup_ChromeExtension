@@ -79,7 +79,7 @@ export async function run({ logicalName }: RunValues = {}): Promise<any> {
     const fetchAttributesBase = async (): Promise<any[]> => {
       let url: string | null =
         `${clientUrl}/api/data/${API_VER}/EntityDefinitions(LogicalName='${encodeURIComponent(logical)}')/Attributes` +
-        `?$select=LogicalName,SchemaName,AttributeType,IsCustomAttribute,IsPrimaryId,IsPrimaryName,IsValidForRead`;
+        `?$select=LogicalName,SchemaName,DisplayName,AttributeType,IsCustomAttribute,IsPrimaryId,IsPrimaryName,IsValidForRead,IsValidForAdvancedFind`;
 
       const list: any[] = [];
       while (url) {
@@ -230,13 +230,15 @@ export async function run({ logicalName }: RunValues = {}): Promise<any> {
 
     const rows = attrs.map((a: any, i: number) => ({
       "Logical Name": a.LogicalName || "",
-      Schema: a.SchemaName || "",
+      "Display Name": a.DisplayName?.UserLocalizedLabel?.Label || "",
       Type: getAttrType(a),
+      "Additional Details": details[i] || "",
+      Schema: a.SchemaName || "",
       Custom: !!a.IsCustomAttribute,
       "Primary Id": !!a.IsPrimaryId,
       "Primary Name": !!a.IsPrimaryName,
       "Valid For Read": a.IsValidForRead,
-      "Additional Details": details[i] || ""
+      Searchable: a.IsValidForAdvancedFind?.Value ?? a.IsValidForAdvancedFind,
     }));
 
     rows.sort((x: any, y: any) => String(x["Logical Name"]).localeCompare(String(y["Logical Name"])));
@@ -261,13 +263,15 @@ export async function run({ logicalName }: RunValues = {}): Promise<any> {
             collapsed: false,
             columnOrder: [
               "Logical Name",
-              "Schema",
+              "Display Name",
               "Type",
+              "Additional Details",
+              "Schema",
               "Custom",
               "Primary Id",
               "Primary Name",
               "Valid For Read",
-              "Additional Details"
+              "Searchable",
             ]
           },
           rows

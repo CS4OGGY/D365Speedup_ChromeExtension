@@ -1,9 +1,10 @@
 
 interface RunValues {
   logicalName?: string;
+  flowFilter?: string; // "all" | "trigger" | "reference" (default)
 }
 
-export async function run({ logicalName }: RunValues): Promise<any> {
+export async function run({ logicalName, flowFilter = "reference" }: RunValues): Promise<any> {
   try {
     if (!logicalName) throw new Error("Table logical name is required.");
 
@@ -105,17 +106,147 @@ export async function run({ logicalName }: RunValues): Promise<any> {
     // =====================================================================
     // 2️⃣ CLOUD FLOWS
     // =====================================================================
-    const flowsAll = await fetchPaged(
-      "workflow",
-      "?$select=workflowid,name,statecode,modifiedon,clientdata,category&$filter=category eq 5&$orderby=modifiedon desc&$top=5000"
-    );
-
     const toJSON = (v: any): any => {
-      try {
-        return typeof v === "string" ? JSON.parse(v) : v || {};
-      } catch {
-        return {};
+      try { return typeof v === "string" ? JSON.parse(v) : v || {}; } catch { return {}; }
+    };
+
+    const clean2 = (v: any): string => (v == null ? "" : String(v).trim());
+
+    const normalizeCsv = (v: any): string => {
+      if (!v) return "";
+      if (Array.isArray(v)) return v.map((x: any) => clean2(x)).filter(Boolean).join(", ");
+      return String(v).split(",").map((x: string) => x.trim()).filter(Boolean).join(", ");
+    };
+
+    const getByPath = (obj: any, path: string): any => {
+      if (!obj) return undefined;
+      let cur = obj;
+      for (const p of path.split(".")) {
+        if (cur == null || typeof cur !== "object" || !(p in cur)) return undefined;
+        cur = cur[p];
       }
+      return cur;
+    };
+
+    const getParam = (params: any, ...names: string[]): any => {
+      for (const name of names) {
+        const direct = params?.[name];
+        if (clean2(direct) !== "") return direct;
+        const dotted = getByPath(params, name);
+        if (clean2(dotted) !== "") return dotted;
+        const slashVal = params?.[name.replace(/\./g, "/")];
+        if (clean2(slashVal) !== "") return slashVal;
+      }
+      return "";
+    };
+
+    const pickFirst = (...vals: any[]): any => vals.find((v: any) => clean2(v) !== "") || "";
+
+    const prettifyChangeType = (v: any): string => {
+      const raw = clean2(v).toLowerCase();
+      if (!raw) return "";
+      const map: Record<string, string> = {
+        "1": "Added", "2": "Removed", "3": "Modified", "4": "Added or Modified",
+        "1,3": "Added or Modified", "3,1": "Added or Modified",
+        "1,2,3": "Added, Modified or Removed",
+        "create": "Added", "created": "Added", "add": "Added", "added": "Added",
+        "update": "Modified", "updated": "Modified", "modify": "Modified", "modified": "Modified",
+        "delete": "Removed", "deleted": "Removed",
+      };
+      const compact = raw.replace(/\s+/g, "");
+      if (map[compact]) return map[compact];
+      const parts = raw.split(",").map((x: string) => x.trim()).filter(Boolean);
+      const hasAdd = parts.some((x: string) => ["1","4","create","created","add","added"].includes(x));
+      const hasMod = parts.some((x: string) => ["3","4","update","updated","modify","modified"].includes(x));
+      const hasDel = parts.some((x: string) => ["2","delete","deleted","remove","removed"].includes(x));
+      if (hasAdd && hasMod && hasDel) return "Added, Modified or Removed";
+      if (hasAdd && hasMod) return "Added or Modified";
+      if (hasAdd && hasDel) return "Added or Removed";
+      if (hasMod && hasDel) return "Modified or Removed";
+      if (hasAdd) return "Added";
+      if (hasMod) return "Modified";
+      if (hasDel) return "Removed";
+      return clean2(v);
+    };
+
+    const prettifyScope = (v: any): string => {
+      const raw = clean2(v).toLowerCase();
+      const map: Record<string, string> = {
+        "1": "User", "2": "Business Unit", "3": "Parent and Child Business Units", "4": "Organization",
+        "user": "User", "businessunit": "Business Unit",
+        "parentchildbusinessunit": "Parent and Child Business Units", "organization": "Organization",
+      };
+      return map[raw] || clean2(v);
+    };
+
+    const parseDataverseTrigger = (trigger: any): Record<string, string> | null => {
+      const inputs = trigger?.inputs || {};
+      const params = inputs?.parameters || {};
+      const host = inputs?.host || trigger?.host || {};
+      const apiId = clean2(host?.apiId).toLowerCase();
+      const connName = clean2(host?.connectionName).toLowerCase();
+      const opId = clean2(trigger?.operationId || inputs?.operationId || host?.operationId).toLowerCase();
+      const paramsText = JSON.stringify(params).toLowerCase();
+
+      const isDataverse =
+        apiId.includes("commondataserviceforapps") ||
+        connName.includes("commondataserviceforapps") ||
+        opId.includes("subscribewebhooktrigger") ||
+        paramsText.includes("subscriptionrequest/entityname") ||
+        paramsText.includes('"entityname"');
+
+      if (!isDataverse) return null;
+
+      const tableName = clean2(pickFirst(
+        getParam(params, "subscriptionRequest.entityname"),
+        getParam(params, "subscriptionRequest.tablename"),
+        getParam(params, "entityName"),
+        getParam(params, "tableName"),
+      )).toLowerCase();
+
+      const rawChangeType = pickFirst(
+        getParam(params, "subscriptionRequest.message"),
+        getParam(params, "subscriptionRequest.event"),
+        getParam(params, "subscriptionRequest.sdkmessage"),
+        getParam(params, "changeType"),
+        getParam(params, "message"),
+      );
+
+      const rawScope = pickFirst(
+        getParam(params, "subscriptionRequest.scope"),
+        getParam(params, "scope"),
+      );
+
+      const selectColumns = normalizeCsv(pickFirst(
+        getParam(params, "subscriptionRequest.filteringattributes"),
+        getParam(params, "subscriptionRequest.selectcolumns"),
+        getParam(params, "filteringattributes"),
+        getParam(params, "filteringAttributes"),
+        getParam(params, "selectColumns"),
+      ));
+
+      const filterRows = clean2(pickFirst(
+        getParam(params, "subscriptionRequest.filterexpression"),
+        getParam(params, "filterExpression"),
+        getParam(params, "filterRows"),
+      ));
+
+      const triggerConditions = ([] as any[])
+        .concat(trigger?.conditions || [])
+        .concat(trigger?.runtimeConfiguration?.conditions || [])
+        .concat(trigger?.metadata?.triggerConditions || [])
+        .map((x: any) => (typeof x === "string" ? x : JSON.stringify(x)))
+        .filter(Boolean)
+        .join(" | ");
+
+      return {
+        "Table Name": tableName,
+        "Change Type": prettifyChangeType(rawChangeType),
+        "Scope": prettifyScope(rawScope),
+        "Select Columns": selectColumns,
+        "Filter Rows": filterRows,
+        "Trigger Conditions": triggerConditions,
+      };
     };
 
     const collectTables = (obj: any, out: Set<string>): void => {
@@ -129,58 +260,90 @@ export async function run({ logicalName }: RunValues): Promise<any> {
       }
     };
 
-    const triggerTargets = (def: any): string[] => {
-      const hits = new Set<string>();
-      const triggers = def?.triggers || def?.properties?.definition?.triggers || {};
-      for (const t of Object.values(triggers)) {
-        const inp = (t as any)?.inputs || {};
-        const cand = [
-          inp?.parameters?.entityName,
-          inp?.parameters?.tableName,
-          inp?.parameters?.entity,
-          inp?.path,
-        ].filter(Boolean);
-
-        for (const s of cand) {
-          const str = String(s).toLowerCase();
-          if (str.includes(entitySet) || str.includes(logicalName)) hits.add(entitySet);
-        }
-
-        const tmp = new Set<string>();
-        collectTables(t, tmp);
-        if (tmp.has(logicalName.toLowerCase()) || tmp.has(entitySet)) hits.add(entitySet);
+    const principalCache = new Map<string, string>();
+    const getPrincipalName = async (id: string): Promise<string> => {
+      if (!id) return "";
+      const key = id.toLowerCase();
+      if (principalCache.has(key)) return principalCache.get(key)!;
+      try {
+        const u = await XrmContext.WebApi.retrieveRecord("systemuser", id, "?$select=fullname");
+        principalCache.set(key, u.fullname || "");
+      } catch {
+        try {
+          const t = await XrmContext.WebApi.retrieveRecord("team", id, "?$select=name");
+          principalCache.set(key, t.name || "");
+        } catch { principalCache.set(key, ""); }
       }
-      return [...hits];
+      return principalCache.get(key)!;
     };
 
-    const flowRows: any[] = [];
+    const flowsAll = await fetchPaged(
+      "workflow",
+      "?$select=workflowid,name,statecode,modifiedon,clientdata,category,_ownerid_value,_modifiedby_value&$filter=category eq 5&$orderby=modifiedon desc&$top=5000"
+    );
+
     const seenFlows = new Set<string>();
+    const rawFlowRows: any[] = [];
 
     for (const w of flowsAll) {
-      const cd = toJSON(w.clientdata);
-      const def = toJSON(cd.definition || cd.properties?.definition || cd.Definition);
-
-      const trigHits = triggerTargets(def);
-      const hitTrigger = trigHits.includes(entitySet);
-
-      const tabs = new Set<string>();
-      collectTables(def, tabs);
-      if (hitTrigger) tabs.add(entitySet);
-
-      const hitAny = tabs.has(logicalName.toLowerCase()) || tabs.has(entitySet);
-      if (!hitAny) continue;
-
       const key = (w.name || "").toLowerCase();
       if (seenFlows.has(key)) continue;
       seenFlows.add(key);
 
-      flowRows.push({
-        Name: link(urlFlow(w.workflowid), w.name),
-        State: wfState(w.statecode),
-        Tables: [...tabs].join(", "),
-        "Modified (UTC)": fmtUtc(w.modifiedon),
-      });
+      const cd = toJSON(w.clientdata);
+      const def = toJSON(cd.definition || cd.properties?.definition || cd.Definition);
+      const triggers = def?.triggers || def?.properties?.definition?.triggers || {};
+
+      // Find best matching Dataverse trigger
+      const allTrigInfos: any[] = [];
+      for (const t of Object.values(triggers)) {
+        const info = parseDataverseTrigger(t);
+        if (info) allTrigInfos.push(info);
+      }
+      const trigInfo = allTrigInfos.find((x: any) =>
+        x["Table Name"] === logicalName.toLowerCase() || x["Table Name"] === entitySet
+      ) || allTrigInfos[0] || null;
+
+      const triggerMatches = trigInfo && (trigInfo["Table Name"] === logicalName.toLowerCase() || trigInfo["Table Name"] === entitySet);
+
+      const tabs = new Set<string>();
+      collectTables(def, tabs);
+      if (triggerMatches) tabs.add(entitySet);
+
+      const hitAny = tabs.has(logicalName.toLowerCase()) || tabs.has(entitySet) || triggerMatches;
+      const wantTrigger   = !flowFilter || flowFilter.includes("trigger");
+      const wantReference = !flowFilter || flowFilter.includes("reference");
+      const include = (wantTrigger && triggerMatches) || (wantReference && hitAny);
+      if (!include) continue;
+
+      rawFlowRows.push({ w, trigInfo, tabs });
     }
+
+    const [ownerNames, modifiedByNames] = await Promise.all([
+      Promise.all(rawFlowRows.map((r: any) => getPrincipalName(r.w._ownerid_value))),
+      Promise.all(rawFlowRows.map((r: any) => getPrincipalName(r.w._modifiedby_value))),
+    ]);
+
+    const flowVizIcon = `<svg width="13" height="13" viewBox="0 0 13 13" fill="none" xmlns="http://www.w3.org/2000/svg" style="vertical-align:-2px"><circle cx="2" cy="6.5" r="1.6" fill="currentColor"/><circle cx="6.5" cy="2" r="1.6" fill="currentColor"/><circle cx="6.5" cy="11" r="1.6" fill="currentColor"/><circle cx="11" cy="6.5" r="1.6" fill="currentColor"/><line x1="3.55" y1="5.8" x2="5.4" y2="3.1" stroke="currentColor" stroke-width="1.1"/><line x1="3.55" y1="7.2" x2="5.4" y2="9.9" stroke="currentColor" stroke-width="1.1"/><line x1="7.6" y1="3.1" x2="9.45" y2="5.8" stroke="currentColor" stroke-width="1.1"/><line x1="7.6" y1="9.9" x2="9.45" y2="7.2" stroke="currentColor" stroke-width="1.1"/></svg>`;
+    const flowRows: any[] = rawFlowRows.map((r: any, i: number) => ({
+      Name: `<span class="flow-viz-icon" data-fid="${r.w.workflowid}" title="Open flow visualizer"><span class="fvi-badge">${flowVizIcon}</span>${r.w.name || ""}</span>`,
+      State: wfState(r.w.statecode),
+      "Change Type": r.trigInfo?.["Change Type"] || "",
+      "Table Name": r.trigInfo?.["Table Name"] || "",
+      "Scope": r.trigInfo?.["Scope"] || "",
+      "Select Columns": r.trigInfo?.["Select Columns"] || "",
+      "Filter Rows": r.trigInfo?.["Filter Rows"] || "",
+      "Trigger Conditions": r.trigInfo?.["Trigger Conditions"] || "",
+      "Tables": [...r.tabs].join(", "),
+      Owner: ownerNames[i] || "",
+      "Modified By": modifiedByNames[i] || "",
+      "Modified On": fmtUtc(r.w.modifiedon),
+    }));
+
+    const flowDataMap: Record<string, any> = {};
+    rawFlowRows.forEach((r: any) => {
+      flowDataMap[r.w.workflowid] = { name: r.w.name, __paUrl: urlFlow(r.w.workflowid), ...toJSON(r.w.clientdata) };
+    });
 
     // =====================================================================
     // 3️⃣ FORM JS HANDLERS
@@ -419,6 +582,7 @@ export async function run({ logicalName }: RunValues): Promise<any> {
     // ✅ Return multiple grids (no wrapper sections)
     return {
       __type: "interactiveTables",
+      __flowDataMap: flowDataMap,
       tables: [
         {
           datasetName: `🧠 Classic Processes (${procRows.length})`,
@@ -427,7 +591,7 @@ export async function run({ logicalName }: RunValues): Promise<any> {
         },
         {
           datasetName: `⚡ Cloud Flows (${flowRows.length})`,
-          gridOptions: { ...baseGridOptions, columnOrder: ["Name", "State", "Tables", "Modified (UTC)"] },
+          gridOptions: { ...baseGridOptions, columnOrder: ["Name", "State", "Change Type", "Table Name", "Scope", "Select Columns", "Filter Rows", "Trigger Conditions", "Tables", "Owner", "Modified By", "Modified On"] },
           rows: flowRows,
         },
         {

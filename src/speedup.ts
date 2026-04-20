@@ -1,4 +1,6 @@
 
+import { render as renderFlowViz } from './flowVisualizer.js';
+
 interface SnippetInputOption { label?: string; value?: string; }
 interface SnippetDataSource {
   entity: string; select: string[]; orderby?: string; top?: number;
@@ -11,6 +13,7 @@ interface SnippetInput {
   required?: boolean; areaRows?: number; autopopulate?: boolean; readonly?: boolean;
   populateFrom?: string; options?: SnippetInputOption[]; dataSource?: SnippetDataSource;
   defaultValue?: string; showWhen?: { inputId: string; value: string }; appendSuffix?: string; stripSpaces?: boolean;
+  tooltip?: string;
 }
 interface Snippet {
   id: string; title: string; description: string; script: string;
@@ -27,7 +30,7 @@ interface PageContext {
 }
 interface GridOptions {
   enableSearch?: boolean; enableFilters?: boolean; enableSorting?: boolean;
-  enableResizing?: boolean; showRenderTime?: boolean; allowHtml?: boolean;
+  enableResizing?: boolean; showRenderTime?: boolean; showFooter?: boolean; allowHtml?: boolean;
   minSearchChars?: number; collapsed?: boolean; columnOrder?: string[] | null;
 }
 
@@ -53,6 +56,7 @@ const D365Speedup = {
     contentArea: document.getElementById("contentArea") as HTMLElement,
     mainTabs: document.getElementById("mainTabs") as HTMLElement,
     panelToggleBtn: document.getElementById("panelToggleBtn") as HTMLButtonElement,
+    themeToggleBtn: document.getElementById("themeToggleBtn") as HTMLButtonElement,
 
   },
   Enums: {} as Record<string, unknown>,
@@ -599,7 +603,7 @@ D365Speedup.Helpers = {
 
     return `
       <table class="output-table">
-        <thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead>
+        <thead><tr>${headers.map((h) => `<th title="${h}">${h}</th>`).join("")}</tr></thead>
         <tbody>${rows}</tbody>
       </table>
     `;
@@ -690,7 +694,7 @@ D365Speedup.Helpers = {
       }
 
       const headers = Object.keys(rows[0] || {});
-      const thead = headers.map((h: string) => `<th class="sortable" data-col="${esc(h)}">${esc(h)}</th>`).join("");
+      const thead = headers.map((h: string) => `<th class="sortable" data-col="${esc(h)}" title="${esc(h)}">${esc(h)}</th>`).join("");
       const tbody = rows.map((r: any) =>
         `<tr>${headers.map((h: string) => `<td>${renderCell(r?.[h])}</td>`).join("")}</tr>`
       ).join("");
@@ -1015,6 +1019,7 @@ D365Speedup.Helpers = {
             const label = document.createElement("span");
             label.className = "header-label";
             label.textContent = key;
+            label.title = key;
 
             const sortIcons = document.createElement("span");
             sortIcons.className = "sort-icons";
@@ -1458,6 +1463,11 @@ D365Speedup.Helpers = {
         }
 
         updateFooterInfo(info: { visible: number; total: number; ms?: number }): void {
+          if (this.options.showFooter === false) {
+            (this.footer as HTMLElement).style.display = "none";
+            return;
+          }
+
           const visible = info.visible;
           const total = info.total;
           const cols = this.columns.length;
@@ -1550,7 +1560,17 @@ D365Speedup.Handlers = {
               <div class="info-card-row"><span class="info-label">Feedback</span><a href="https://github.com/CS4OGGY/D365Speedup_ChromeExtension/issues" target="_blank" class="info-card-link">Report an issue on GitHub</a></div>
               <div class="info-card-divider"></div>
               <div class="info-card-section-title">What's New</div>
-              <p class="info-card-whats-new">v1.0 - Initial release</p>
+              <ul class="info-card-whats-new">
+                <li><strong>v1.1</strong>
+                  <ul>
+                    <li>🌙 Dark / Light mode toggle — switch themes instantly, preference saved automatically</li>
+                    <li>🔍 Find Field on Form — new tool to locate any field across tabs and sections on the active record form</li>
+                    <li>💡 Field tips — info tooltips on inputs with usage instructions</li>
+                    <li>⚡ General UX improvements — cleaner output tables, better back button, panel highlights</li>
+                  </ul>
+                </li>
+                <li><strong>v1.0</strong> — Initial release</li>
+              </ul>
               <div class="info-card-divider"></div>
               <p class="info-card-privacy">Privacy: No data is collected or stored externally. All operations run directly in the active browser tab.</p>
             </div>
@@ -1861,7 +1881,7 @@ D365Speedup.Handlers = {
           </div>
           <div class="loading-state">
             <div class="spinner"></div>
-            <p>Loading...</p>
+            <p>Running...</p>
           </div>
         </div>
       `;
@@ -1903,10 +1923,17 @@ D365Speedup.Handlers = {
         ? `<span class="required-mark" style="color:#ff4b4b;font-weight:bold;margin-left:4px;">*</span>`
         : "";
 
-      const isRadio = input.type === "radio";
+      const isRadio    = input.type === "radio";
+      const isCheckbox = input.type === "checkbox";
+      const isFxb      = input.type === "fetchxml-builder";
       const controlHtml =
         input.type === "multi-line"
           ? `<textarea id="${input.id}" placeholder="${input.placeholder || ""}" rows="${input.areaRows || 4}" class="input-textarea"></textarea>`
+          : isFxb
+            ? `<div class="fxb-build-pane">
+                 <div class="fxb-builder-host"></div>
+               </div>
+               <input type="hidden" id="${input.id}" />`
           : input.type === "select"
             ? `<select id="${input.id}" class="input-select" data-type="select">
                   ${(input.options || []).map((opt: SnippetInputOption) => {
@@ -1924,6 +1951,16 @@ D365Speedup.Handlers = {
                     return `<label class="radio-label"><input type="radio" name="${input.id}" value="${D365Speedup.Helpers.escapeHTML(val)}" ${checked}> ${D365Speedup.Helpers.escapeHTML(lbl)}</label>`;
                   }).join("")}
                 </div>`
+            : isCheckbox
+              ? `<div id="${input.id}" class="radio-group">
+                  ${(input.options || []).map((opt: SnippetInputOption) => {
+                    const val = (opt?.value ?? "").toString();
+                    const lbl = (opt?.label ?? val).toString();
+                    const defaults = (input.defaultValue || "").toString().split(",").map((v: string) => v.trim());
+                    const checked = defaults.includes(val) ? "checked" : "";
+                    return `<label class="radio-label"><input type="checkbox" name="${input.id}" value="${D365Speedup.Helpers.escapeHTML(val)}" ${checked}> ${D365Speedup.Helpers.escapeHTML(lbl)}</label>`;
+                  }).join("")}
+                </div>`
               : `<input type="text" id="${input.id}" placeholder="${input.placeholder || ""}" class="input-text" data-type="${input.type}"${input.stripSpaces ? ` data-strip-spaces="true"` : ""}${input.appendSuffix ? ` data-append-suffix="${input.appendSuffix}"` : ""}${input.readonly ? ` readonly` : ""} />`;
 
       const showWhenAttr = input.showWhen
@@ -1932,13 +1969,13 @@ D365Speedup.Handlers = {
       const initialHidden = input.showWhen ? ` style="display:none"` : "";
 
       inputsHTML += `
-        <div class="input-group" data-input-id="${input.id}"${showWhenAttr}${initialHidden}>
-          <label${isRadio ? "" : ` for="${input.id}"`}>
-            ${input.label}${requiredMark}
-          </label>
+        <div ${isFxb ? "" : `class="input-group" `}data-input-id="${input.id}"${showWhenAttr}${initialHidden}>
+          ${isFxb ? "" : `<label${(isRadio || isCheckbox) ? "" : ` for="${input.id}"`}>
+            ${input.label}${requiredMark}${input.tooltip ? ` <span class="field-tooltip-icon"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="8"/><polyline points="11 12 12 12 12 16"/></svg><span class="field-tooltip-text">${input.tooltip}</span></span>` : ""}
+          </label>`}
           <div class="input-wrapper-dv">
             ${controlHtml}
-            ${isRadio ? "" : `<span class="clear-btn" title="Clear">✖</span>`}
+            ${(isRadio || isCheckbox || isFxb) ? "" : `<span class="clear-btn" title="Clear">✖</span>`}
           </div>
         </div>
       `;
@@ -1975,6 +2012,23 @@ D365Speedup.Handlers = {
       </div>
     `;
 
+    // --- Wire up field tooltip icons (position:fixed to escape overflow clipping) ---
+    contentArea.querySelectorAll<HTMLElement>(".field-tooltip-icon").forEach(icon => {
+      const bubble = icon.querySelector<HTMLElement>(".field-tooltip-text");
+      if (!bubble) return;
+      icon.addEventListener("mouseenter", () => {
+        const r = icon.getBoundingClientRect();
+        bubble.style.left = Math.max(8, r.left + r.width / 2 - 115) + "px";
+        bubble.style.top  = (r.top - bubble.offsetHeight - 9) + "px";
+        bubble.classList.add("visible");
+        // Adjust vertically after display so offsetHeight is known
+        requestAnimationFrame(() => {
+          bubble.style.top = (r.top - bubble.offsetHeight - 9) + "px";
+        });
+      });
+      icon.addEventListener("mouseleave", () => bubble.classList.remove("visible"));
+    });
+
     // --- Initialize context + autocomplete + clear buttons ---
     requestAnimationFrame(() => {
       snippet.inputs!.forEach((input: SnippetInput) => {
@@ -1983,6 +2037,28 @@ D365Speedup.Handlers = {
 
         const wrapper = el.closest(".input-wrapper-dv") || el.closest(".input-wrapper");
         const clearBtn = wrapper?.querySelector(".clear-btn") as HTMLElement | null;
+
+        // Wire up fetchxml-builder — mount immediately (no mode-toggle tabs)
+        if (input.type === "fetchxml-builder") {
+          const group = el.closest("[data-input-id]") as HTMLElement | null;
+          if (!group) return;
+          const builderHost = group.querySelector<HTMLElement>(".fxb-builder-host");
+          const hiddenInput = el as HTMLInputElement;
+          if (builderHost) {
+            (async () => {
+              const builderUrl = chrome.runtime.getURL("dist/fetchXmlBuilder.js") + "?v=" + Date.now();
+              const { render } = await import(/* @vite-ignore */ builderUrl) as any;
+              render(builderHost, {
+                fetchAllEntities:   () => D365Speedup.Core.getFetchXmlEntities(),
+                fetchEntityMeta:    (ln: string) => D365Speedup.Core.getFetchXmlEntityMeta(ln),
+                fetchAttrOptions:   (en: string, an: string) => D365Speedup.Core.getFetchXmlAttrOptions(en, an),
+                fetchLookupRecords: (ent: string, q: string, sf?: string) => D365Speedup.Core.getFetchXmlLookupRecords(ent, q, sf),
+                onXmlChange: (xml: string) => { hiddenInput.value = xml; },
+              });
+            })();
+          }
+          return;
+        }
 
         // Attach autocomplete if defined
         if (input.type === "autocomplete" && input.dataSource) {
@@ -2105,7 +2181,7 @@ D365Speedup.Handlers = {
           output.innerHTML = `
             <div class="loading-state">
               <div class="spinner"></div>
-              <p>Running... please wait</p>
+              <p>Running...</p>
             </div>
           `;
         }
@@ -2189,7 +2265,8 @@ D365Speedup.Handlers = {
       { title: "Duplicate Detection Rules", url: `${baseUrl}/main.aspx?etn=duplicaterule&pagetype=entitylist` },
       { title: "Bulk Delete Jobs", url: `${baseUrl}/main.aspx?etn=bulkdeleteoperation&pagetype=entitylist` },
       { title: "Power Apps Admin", url: adminPowerAppsUrl },
-      { title: "Known Issues", url: "https://admin.powerplatform.microsoft.com/support/knownIssues" }
+      { title: "Known Issues", url: "https://admin.powerplatform.microsoft.com/support/knownIssues" },
+      { title: "D365 Diagnostics", url: `${baseUrl}/tools/diagnostics/diag.aspx` }
     ];
 
     contentArea.innerHTML = `
@@ -2208,6 +2285,36 @@ D365Speedup.Handlers = {
         const url = (card as HTMLElement).dataset.url;
         if (url) chrome.tabs.create({ url });
       });
+    });
+  },
+
+  setupThemeToggle: async function (): Promise<void> {
+    const btn = D365Speedup.DOM.themeToggleBtn;
+    if (!btn) return;
+
+    const SUN_SVG = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+      <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+    </svg>`;
+    const MOON_SVG = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+    </svg>`;
+
+    const applyTheme = (isLight: boolean): void => {
+      document.body.classList.toggle("light-mode", isLight);
+      btn.innerHTML = isLight ? MOON_SVG : SUN_SVG;
+      btn.title = isLight ? "Switch to Dark Mode" : "Switch to Light Mode";
+    };
+
+    const { lightMode } = await chrome.storage.local.get("lightMode");
+    applyTheme(!!lightMode);
+
+    btn.addEventListener("click", async () => {
+      const nowLight = !document.body.classList.contains("light-mode");
+      await chrome.storage.local.set({ lightMode: nowLight });
+      applyTheme(nowLight);
     });
   },
 
@@ -2310,11 +2417,12 @@ D365Speedup.Core = {
         const checked = el.querySelector("input[type=\"radio\"]:checked") as HTMLInputElement | null;
         values[i.id] = checked?.value || i.defaultValue || "";
       }
+      else if (i.type === "checkbox") {
+        const checked = Array.from(el.querySelectorAll("input[type=\"checkbox\"]:checked")) as HTMLInputElement[];
+        values[i.id] = checked.map(c => c.value).join(",");
+      }
       else values[i.id] = (el as HTMLInputElement).value || "";
     });
-
-    const output = document.getElementById("outputText");
-    if (output) output.textContent = "Running...";
 
     try {
       const moduleUrl = chrome.runtime.getURL(snippet.script);
@@ -2354,6 +2462,10 @@ D365Speedup.Core = {
       if ((window as any).Prism) (window as any).Prism.highlightAllUnder(output);
     } else if (type === "table" || type === "dynamic") {
       if (result && typeof result === "object" && result.__type === "interactiveTables") {
+        if (result.__flowDataMap) {
+          (window as any).__flowDataMap = result.__flowDataMap;
+        }
+
         const wrapId = "multiGrid_" + Math.random().toString(36).slice(2, 9);
         output.innerHTML = `<div id="${wrapId}"></div>`;
 
@@ -2384,6 +2496,16 @@ D365Speedup.Core = {
               noteEl.innerHTML = t.note;
               holder.appendChild(noteEl);
             }
+          });
+
+          // Delegated click for flow visualizer icons
+          wrap.addEventListener("click", (e: MouseEvent) => {
+            const icon = (e.target as HTMLElement).closest(".flow-viz-icon") as HTMLElement | null;
+            if (!icon) return;
+            const fid = icon.dataset.fid;
+            const json = (window as any).__flowDataMap?.[fid!];
+            if (!json) return;
+            (window as any).__openFlowViz(json);
           });
         });
 
@@ -2455,7 +2577,87 @@ D365Speedup.Core = {
     } else {
       if (hoverCopyBtn) hoverCopyBtn.style.display = "none";
     }
-  }
+  },
+
+  getFetchXmlEntities: async function (): Promise<{ name: string; display: string }[]> {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab?.id) return [];
+      const moduleUrl = chrome.runtime.getURL("dist/fetchxmlTester.js") + "?v=" + Date.now();
+      const [{ result }] = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        world: D365Speedup.Constants.PAGE_WORLD,
+        func: async (url: string) => {
+          const m = await import(url);
+          return await m.fetchEntities();
+        },
+        args: [moduleUrl],
+      });
+      return (result as any) || [];
+    } catch {
+      return [];
+    }
+  },
+
+  getFetchXmlEntityMeta: async function (logicalName: string): Promise<any> {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab?.id) return { attrs: [], rels: [], views: [], primaryName: '', primaryId: '' };
+      const moduleUrl = chrome.runtime.getURL("dist/fetchxmlTester.js") + "?v=" + Date.now();
+      const [{ result }] = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        world: D365Speedup.Constants.PAGE_WORLD,
+        func: async (url: string, ln: string) => {
+          const m = await import(url);
+          return await m.fetchEntityMeta({ logicalName: ln });
+        },
+        args: [moduleUrl, logicalName],
+      });
+      return (result as any) || { attrs: [], rels: [], views: [], primaryName: '', primaryId: '' };
+    } catch {
+      return { attrs: [], rels: [], views: [], primaryName: '', primaryId: '' };
+    }
+  },
+
+  getFetchXmlAttrOptions: async function (entityName: string, attrName: string): Promise<{ v: number; l: string }[]> {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab?.id) return [];
+      const moduleUrl = chrome.runtime.getURL("dist/fetchxmlTester.js") + "?v=" + Date.now();
+      const [{ result }] = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        world: D365Speedup.Constants.PAGE_WORLD,
+        func: async (url: string, en: string, an: string) => {
+          const m = await import(url);
+          return await m.fetchAttrOptions({ entityName: en, attrName: an });
+        },
+        args: [moduleUrl, entityName, attrName],
+      });
+      return (result as any) || [];
+    } catch {
+      return [];
+    }
+  },
+
+  getFetchXmlLookupRecords: async function (targetEntity: string, searchTerm: string, searchField?: string): Promise<{ id: string; name: string; sub?: string; url?: string }[]> {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab?.id) return [];
+      const moduleUrl = chrome.runtime.getURL("dist/fetchxmlTester.js") + "?v=" + Date.now();
+      const [{ result }] = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        world: D365Speedup.Constants.PAGE_WORLD,
+        func: async (url: string, ent: string, q: string, sf: string | null) => {
+          const m = await import(url);
+          return await m.fetchLookupRecords({ entityName: ent, searchTerm: q, searchField: sf ?? undefined });
+        },
+        args: [moduleUrl, targetEntity, searchTerm, searchField ?? null],
+      });
+      return (result as any) || [];
+    } catch {
+      return [];
+    }
+  },
 };
 
 // ============================================================================
@@ -2509,6 +2711,7 @@ D365Speedup.Handlers.Onload = async function (): Promise<void> {
   D365Speedup.Handlers.setupSidebarToggle();
   await D365Speedup.Handlers.renderFavoritesInMain();
   D365Speedup.Handlers.setupMainTabs();
+  await D365Speedup.Handlers.setupThemeToggle();
   await D365Speedup.Handlers.setupPanelToggle();
 
   if (!inSidebar) {
@@ -2518,6 +2721,23 @@ D365Speedup.Handlers.Onload = async function (): Promise<void> {
       btn.addEventListener("animationend", () => btn.classList.remove("flash"), { once: true });
     }
   }
+
+  // Flow Visualizer modal setup
+  const flowModal = document.getElementById("flowVizModal");
+  const flowContainer = document.getElementById("flowVizContainer");
+  const flowOverlay = document.getElementById("flowVizOverlay");
+  const flowClose = document.getElementById("flowVizClose");
+
+  const closeFlowViz = () => flowModal?.classList.add("hidden");
+
+  (window as any).__openFlowViz = (json: any) => {
+    if (!flowModal || !flowContainer) return;
+    renderFlowViz(flowContainer, json);
+    flowModal.classList.remove("hidden");
+  };
+
+  flowOverlay?.addEventListener("click", closeFlowViz);
+  flowClose?.addEventListener("click", closeFlowViz);
 
   // Show burger hint briefly if no favorites
   const favorites: string[] = await D365Speedup.Storage.getFavorites();
